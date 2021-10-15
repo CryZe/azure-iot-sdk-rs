@@ -92,5 +92,7 @@ pub mod transport;
 /// Provision support using Azure device provisioning service
 pub mod provision;
 
+pub use native_tls::Identity;
+
 /// Convenience type alias for `std::result::Result<T, Box<dyn std::error::Error>>`
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

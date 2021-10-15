@@ -1,30 +1,31 @@
-use mqtt::control::variable_header::ConnectReturnCode;
-use mqtt::packet::*;
-use mqtt::topic_name::TopicNameError;
-use mqtt::Encodable;
-use mqtt::TopicName;
+use mqtt::{
+    control::variable_header::ConnectReturnCode, packet::*, topic_name::TopicNameError, Encodable,
+    TopicName,
+};
 #[cfg(any(
     feature = "direct-methods",
     feature = "c2d-messages",
     feature = "twin-properties"
 ))]
 use mqtt::{QualityOfService, TopicFilter};
-use tokio::io::AsyncWriteExt;
-use tokio::io::{ReadHalf, WriteHalf};
-use tokio::net::TcpStream;
+use native_tls::Identity;
 #[cfg(any(
     feature = "direct-methods",
     feature = "c2d-messages",
     feature = "twin-properties"
 ))]
 use tokio::sync::mpsc::{channel, Receiver};
-use tokio::sync::Mutex;
-use tokio::{task::JoinHandle, time};
+use tokio::{
+    io::{AsyncWriteExt, ReadHalf, WriteHalf},
+    net::TcpStream,
+    sync::Mutex,
+    task::JoinHandle,
+    time,
+};
 use tokio_native_tls::{TlsConnector, TlsStream};
 
 use async_trait::async_trait;
 
-use crate::message::Message;
 #[cfg(any(
     feature = "direct-methods",
     feature = "c2d-messages",
@@ -33,7 +34,7 @@ use crate::message::Message;
 use crate::message::MessageType;
 #[cfg(feature = "direct-methods")]
 use crate::message::{DirectMethodInvocation, DirectMethodResponse};
-use crate::{token::TokenSource, transport::Transport};
+use crate::{message::Message, token::TokenSource, transport::Transport};
 use chrono::{Duration, Utc};
 use std::sync::Arc;
 
@@ -96,13 +97,22 @@ const REQUEST_ID_PARAM: &str = "?$rid=";
 /// ```no_run
 /// // let (read_socket, write_socket) = client::connect("myiothub".to_string(), "myfirstdevice".to_string(), "SharedAccessSignature sr=myiothub.azure-devices.net%2Fdevices%2Fmyfirstdevice&sig=blahblah&se=1586909077".to_string()).await;
 /// ```
-async fn tcp_connect(iot_hub: &str) -> crate::Result<TlsStream<TcpStream>> {
+async fn tcp_connect(
+    iot_hub: &str,
+    identity: Option<Identity>,
+) -> crate::Result<TlsStream<TcpStream>> {
     let socket = TcpStream::connect((iot_hub, 8883)).await?;
 
     trace!("Connected to tcp socket {:?}", socket);
 
+    let mut builder = native_tls::TlsConnector::builder();
+
+    if let Some(identity) = identity {
+        builder.identity(identity);
+    }
+
     let cx = TlsConnector::from(
-        native_tls::TlsConnector::builder()
+        builder
             .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
             .build()
             .unwrap(),
@@ -120,8 +130,9 @@ pub(crate) async fn mqtt_connect(
     client_identifier: &str,
     username: impl ToString,
     password: impl ToString,
+    identity: Option<Identity>,
 ) -> crate::Result<TlsStream<TcpStream>> {
-    let mut socket = tcp_connect(hostname).await?;
+    let mut socket = tcp_connect(hostname, identity).await?;
 
     let mut conn = ConnectPacket::new(client_identifier);
     conn.set_client_identifier(client_identifier);
@@ -198,6 +209,7 @@ impl MqttTransport {
         hub_name: &str,
         device_id: String,
         token_source: TS,
+        identity: Option<Identity>,
     ) -> crate::Result<Self>
     where
         TS: TokenSource + Send + Sync + 'static,
@@ -209,7 +221,7 @@ impl MqttTransport {
         let token = token_source.get(&expiry);
         trace!("Using token {}", token);
 
-        let socket = mqtt_connect(&hub_name, &device_id, user_name, token).await?;
+        let socket = mqtt_connect(&hub_name, &device_id, user_name, token, identity).await?;
 
         let (read_socket, write_socket) = tokio::io::split(socket);
 

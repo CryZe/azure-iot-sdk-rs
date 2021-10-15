@@ -196,6 +196,7 @@ async fn get_iothub_from_provision_service(
     registration_id: &str,
     device_key: &str,
     max_retries: i32,
+    identity: Option<native_tls::Identity>,
 ) -> Result<ProvisionedResponse, Box<dyn std::error::Error>> {
     let username = format!(
         "{}/registrations/{}/{}",
@@ -204,7 +205,7 @@ async fn get_iothub_from_provision_service(
     let expiry = Utc::now() + Duration::days(1);
     let expiry = expiry.timestamp();
     let sas = generate_registration_sas(scope_id, registration_id, device_key, expiry);
-    let mut socket = mqtt_connect(DPS_HOST, registration_id, username, sas).await?;
+    let mut socket = mqtt_connect(DPS_HOST, registration_id, username, sas, identity).await?;
 
     let topics = vec![(
         TopicFilter::new("$dps/registrations/res/#").unwrap(),
@@ -326,10 +327,16 @@ impl IoTHubClient {
         device_id: String,
         device_key: &str,
         max_retries: i32,
+        identity: Option<native_tls::Identity>,
     ) -> Result<IoTHubClient, Box<dyn std::error::Error>> {
-        let response =
-            get_iothub_from_provision_service(scope_id, &device_id, device_key, max_retries)
-                .await?;
+        let response = get_iothub_from_provision_service(
+            scope_id,
+            &device_id,
+            device_key,
+            max_retries,
+            identity.clone(),
+        )
+        .await?;
 
         debug!("Connecting to hub {:?} after provisioning", response);
 
@@ -340,6 +347,7 @@ impl IoTHubClient {
             &response.assigned_hub,
             response.device_id,
             token_source.clone(),
+            identity,
         )
         .await?;
         Ok(client)
