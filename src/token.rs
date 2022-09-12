@@ -133,7 +133,7 @@ impl TokenSource for DeviceKeyTokenSource {
 /// to implement an IoT Plug-n-Play device))
 #[derive(Debug, Clone)]
 pub struct UsernamePasswordTokenSource {
-    username: String,
+    // username: String,
     password: String,
 }
 
